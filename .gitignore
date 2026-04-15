@@ -1,0 +1,4 @@
+jmeter/results/
+jmeter/reports/
+*.jtl
+jmeter/results/*.log
