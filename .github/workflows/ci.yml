@@ -1,0 +1,67 @@
+name: Performance Tests
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  load-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: pip install numpy
+
+      - name: Start Restful Booker
+        run: docker run -d -p 3001:3001 --name restful-booker naveendxavi/restful-booker
+
+      - name: Wait for API to be ready
+        run: timeout 60 bash -c 'until curl -sf http://localhost:3001/booking; do sleep 2; done'
+
+      - name: Install JMeter 5.6.3
+        run: |
+          wget -q https://downloads.apache.org/jmeter/binaries/apache-jmeter-5.6.3.tgz || \
+          wget -q https://archive.apache.org/dist/jmeter/binaries/apache-jmeter-5.6.3.tgz
+          tar -xzf apache-jmeter-5.6.3.tgz
+          echo "$GITHUB_WORKSPACE/apache-jmeter-5.6.3/bin" >> $GITHUB_PATH
+
+      - name: Verify JMeter installation
+        run: jmeter --version
+
+      - name: Run load test
+        run: |
+          mkdir -p jmeter/results jmeter/reports/load
+          jmeter -n \
+            -t jmeter/test-plans/load-test.jmx \
+            -l jmeter/results/load.jtl \
+            -j jmeter/results/load.log \
+            -e -o jmeter/reports/load/
+
+      - name: Check SLA thresholds and baseline
+        run: python scripts/check-sla.py jmeter/results/load.jtl
+
+      - name: Upload JTL results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jmeter-results-${{ github.run_number }}
+          path: jmeter/results/load.jtl
+          if-no-files-found: ignore
+
+      - name: Upload HTML report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jmeter-html-report-${{ github.run_number }}
+          path: jmeter/reports/load/
+          if-no-files-found: ignore
